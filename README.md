@@ -187,11 +187,13 @@ That checkbox is what turns three deploys into a promotion pipeline.
 
 > **Plan requirement:** environment protection rules are only available on
 > **public** repositories, or on private repositories with GitHub Pro / Team.
-> On a Free private repo the API returns
+> On a Free *private* repo the API returns
 > `Failed to create the environment protection rule. Please ensure the billing
-> plan supports the required reviewers protection rule (HTTP 422)`. The
-> pipeline still works — promotion just runs without pausing for approval.
-> The GitHub Student Developer Pack includes Pro, which lifts this.
+> plan supports the required reviewers protection rule (HTTP 422)`.
+>
+> This repo is public, so the gates are active. If you fork it private on a Free
+> plan, the pipeline still works — promotion just runs without pausing. The
+> GitHub Student Developer Pack includes Pro, which lifts the restriction.
 
 Add these **variables** (not secrets — none of them are sensitive) to each
 environment, using the values the bootstrap script printed:
