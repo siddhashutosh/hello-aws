@@ -137,10 +137,22 @@ you inherit whichever SDK version AWS ships; bundle it if you ever need to pin.
 
 ## Local development
 
+**Node 22** — pinned in `.nvmrc` / `.node-version`, declared in `engines`, and
+enforced by `engine-strict=true` in `.npmrc`. It matches the Lambda managed
+runtime exactly, so a zip that installs locally will run in AWS. Installing on a
+different major fails loudly instead of shipping a broken artifact.
+
 ```bash
+nvm use           # or: fnm use  /  asdf install
 npm install
 npm test          # 7 tests, no AWS required
 npm run dev       # http://localhost:8080
+```
+
+`infra/` is a separate workspace with its own `package.json` and lockfile:
+
+```bash
+cd infra && npm ci && npm run typecheck
 ```
 
 With no `TABLE` environment variable set, the DynamoDB client is never
