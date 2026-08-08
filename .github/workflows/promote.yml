@@ -1,0 +1,59 @@
+name: Promote
+
+# Moves the artifact that is *already running* in the upstream environment one
+# step forward: dev -> test -> prod. Nothing is rebuilt, so the bytes that reach
+# production are the exact bytes that were tested.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Promote to
+        type: choice
+        options: [test, prod]
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve upstream artifact
+    runs-on: ubuntu-latest
+    # Read credentials for the SOURCE environment: dev when targeting test,
+    # test when targeting prod.
+    environment: ${{ inputs.target == 'test' && 'dev' || 'test' }}
+    outputs:
+      artifactKey: ${{ steps.read.outputs.key }}
+      source: ${{ steps.read.outputs.source }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Read deployed artifact from upstream stack
+        id: read
+        run: |
+          SOURCE="${{ inputs.target == 'test' && 'dev' || 'test' }}"
+          KEY=$(aws cloudformation describe-stacks \
+                  --stack-name "Hello-${SOURCE}" \
+                  --query "Stacks[0].Outputs[?OutputKey=='ArtifactKey'].OutputValue" \
+                  --output text)
+
+          if [ -z "$KEY" ] || [ "$KEY" = "None" ]; then
+            echo "::error title=Nothing to promote::Hello-${SOURCE} has no deployed artifact."
+            exit 1
+          fi
+
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY"       >> "$GITHUB_OUTPUT"
+          echo "::notice title=Promoting::$KEY  ${SOURCE} -> ${{ inputs.target }}"
+
+  promote:
+    name: Deploy to ${{ inputs.target }}
+    needs: resolve
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: ${{ inputs.target }}
+      artifactKey: ${{ needs.resolve.outputs.artifactKey }}

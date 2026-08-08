@@ -1,0 +1,77 @@
+name: CI/CD
+
+# Push to develop -> test -> build one artifact -> deploy it to dev.
+# Moving that same artifact to test and then prod is done by promote.yml.
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22' # matches the Lambda runtime
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Typecheck infrastructure
+        working-directory: infra
+        run: |
+          npm ci
+          npm run typecheck
+
+  build:
+    name: Build artifact
+    needs: test
+    runs-on: ubuntu-latest
+    # Artifacts are published using the dev role — test and prod roles have no
+    # write access to the artifact bucket at all.
+    environment: dev
+    outputs:
+      artifactKey: ${{ steps.package.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package
+        id: package
+        run: |
+          KEY="artifacts/sha-${GITHUB_SHA::7}.zip"
+          # The handler has no runtime dependencies: AWS SDK v3 ships with the
+          # Node 22 managed runtime, so the zip is just the source.
+          (cd src && zip -qr ../build.zip .)
+          unzip -l build.zip
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload to S3
+        run: |
+          aws s3 cp build.zip "s3://${{ vars.ARTIFACT_BUCKET }}/${{ steps.package.outputs.key }}"
+          echo "::notice title=Artifact::${{ steps.package.outputs.key }}"
+
+  deploy-dev:
+    name: Deploy to dev
+    needs: build
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: dev
+      artifactKey: ${{ needs.build.outputs.artifactKey }}

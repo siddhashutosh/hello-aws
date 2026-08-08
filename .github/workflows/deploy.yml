@@ -1,0 +1,73 @@
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Target environment (dev | test | prod)
+        required: true
+        type: string
+      artifactKey:
+        description: S3 key of the already-built artifact to deploy
+        required: true
+        type: string
+
+permissions:
+  id-token: write # required to mint the OIDC token AWS trusts
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # The GitHub Environment supplies this env's role ARN and, for test/prod,
+    # blocks the job until a required reviewer approves it.
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.out.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+
+      - run: npm ci
+        working-directory: infra
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Deploy ${{ inputs.artifactKey }} to ${{ inputs.environment }}
+        working-directory: infra
+        run: |
+          npx cdk deploy Hello-${{ inputs.environment }} \
+            --context envName=${{ inputs.environment }} \
+            --context artifactKey=${{ inputs.artifactKey }} \
+            --require-approval never \
+            --outputs-file outputs.json
+
+      - name: Smoke test
+        id: out
+        working-directory: infra
+        run: |
+          URL=$(node -p "require('./outputs.json')['Hello-${{ inputs.environment }}'].Url")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed to $URL"
+
+          # Retry briefly: a brand-new Function URL can take a moment to resolve.
+          for i in $(seq 1 10); do
+            if curl -fsS "${URL}health" -o health.json; then
+              cat health.json
+              curl -fsS "$URL"
+              echo "::notice title=Deployed::${{ inputs.environment }} -> ${{ inputs.artifactKey }} at $URL"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "::error title=Smoke test failed::$URL did not become healthy"
+          exit 1
