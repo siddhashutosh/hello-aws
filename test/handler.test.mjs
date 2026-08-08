@@ -30,7 +30,7 @@ test('GET / says hello and reports the environment', async () => {
   const res = await handler(req('/'));
   assert.equal(res.statusCode, 200);
   const body = JSON.parse(res.body);
-  assert.equal(body.message, 'Hello, world!');
+  assert.equal(body.message, 'Hello, world 2!');
   assert.equal(body.env, process.env.ENV ?? 'local');
 });
 

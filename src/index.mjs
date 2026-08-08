@@ -63,7 +63,7 @@ export const handler = async (event) => {
     }
 
     return json(200, {
-      message: 'Hello, world!',
+      message: 'Hello, world 2!',
       env: ENV,
       release: RELEASE,
       visits,
